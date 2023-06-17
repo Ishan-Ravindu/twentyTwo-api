@@ -32,6 +32,14 @@ const mongoose = require('mongoose');
       type: Boolean,
       default: false,
     },
+    userIP: {
+      type: String,
+      required:true
+    },
+
+    //reset password things
+    resetPasswordToken: String,
+    resetPasswordExpire: Date,
 
   },{timestamps: true});
   const User = mongoose.model('user', UserSchema)
