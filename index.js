@@ -2,8 +2,7 @@ const dotenv = require("dotenv");
 dotenv.config();
 const express = require("express");
 const connectToMongo = require("./db");
-const cors = require('cors');
-const bodyParser = require("body-parser")
+var cors = require('cors');
 const app = express();
 connectToMongo();
 const appPort = process.env.PORT || 5000;
@@ -23,9 +22,6 @@ process.on("uncaughtException", (err, promis) => {
 //with use of this our appliction will be abel to accept json inputs
 app.use(express.json());
 app.use(cors());
-app.use(bodyParser.urlencoded({
-  extended: true
-}));
 
 app.get('/', (req, res) => {
     res.send('Hello World!')
