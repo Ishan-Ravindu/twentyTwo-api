@@ -4,66 +4,48 @@ const {verifyAdminWithToken, verifyToken, verifyUserWithToken} = require("./toke
 
 //add new product to cart req: login
 
-router.post("/:id", verifyUserWithToken, async (req, res) => {
+router.post("/", verifyUserWithToken, async (req, res) => {
     //const newCart = new cart(req.body);
     try {
       const cart = await Cart.findOne({userID: req.user.id})
-      console.log(`userID : ${req.user.id}`)
-      console.log(`userID : ${req.user.id}`)
-      console.log(cart)
-      
-      
-        if(cart?.userID === req.user.id) {
+
+        //if that user cart exist
+        if(cart) {
           console.log("user cart exist")
           
           let itemIndex = cart.products.findIndex(p => p.productID === req.body.products[0].productID);
           console.log(`dublicate index : ${itemIndex}`)
           
-      
-        if(itemIndex > -1) {
-          console.log("product is dublicate")
-          console.log(req.body.products[0].productID)
+          //if that product axist on cart.
+          if(itemIndex > -1) {
+            let productItem = cart.products[itemIndex];
+            const newQuantity = parseInt(productItem.quantity) + parseInt(req.body.products[0].quantity);
+            productItem.quantity = newQuantity;
+            cart.products[itemIndex] = productItem;
 
-         
-
-          let productItem = cart.products[itemIndex];
-          const newQuantity = parseInt(productItem.quantity) + parseInt(req.body.products[0].quantity);
-          productItem.quantity = newQuantity;
-          cart.products[itemIndex] = productItem;
-
-          savedCart = await cart.save();
-          
-
-          res.status(200).json(savedCart)
-          console.log("cart updated");
-          
+            await cart.save();
+            
+            console.log("cart updated");
+            return res.status(200).json({status: "success", productExisted: true})
+            
+        // if user cart dosent have that product
         } else {
           console.log("product is not dublicate")
-          console.log(req.body.products[0].productID)
-          const updatedCart = await Cart.findOneAndUpdate({userID: req.user.id}, {
-            
+          await Cart.findOneAndUpdate({userID: req.user.id}, { //pushing new product to array
             $push: {
-              products: {
-                productID: req.body.products[0].productID,
-                title: req.body.products[0].title,
-                img: req.body.products[0].img,
-                size: req.body.products[0].size,
-                color: req.body.products[0].color,
-                price: req.body.products[0].price,
-                quantity: req.body.products[0].quantity
-              }
+              products: req.body.products
             }
           },{new: true})
 
-          res.status(200).json(updatedCart)
+          return res.status(200).json({status: "success", productExisted: false})
         }
  
       } else {
         console.log("product added")
         const newCart = Cart({...req.body, userID: req.user.id});
         const savedCart = await newCart.save();
-        res.status(200).json(savedCart);
         console.log("product added")
+        return res.status(200).json({status: "success", productExisted: false})
 
       }
     } catch (err) {
@@ -73,34 +55,46 @@ router.post("/:id", verifyUserWithToken, async (req, res) => {
   });
 
 //get cart size
-router.get('/size/:id',verifyUserWithToken,async (req, res)=>{
-    
-    const cart = await Cart.findOne({userID: req.user.id});
-    if(!cart) return res.status(200).json(0)
-
-    const cartLength = cart.products?.length;  
-    return res.status(200).json(cartLength);
-
-})
-
-//update products cart
-router.put("/:id", verifyUserWithToken, async (req,res) => {
-
+router.get('/size',verifyUserWithToken,async (req, res)=>{
     try {
-        const uodatecart = await Cart.findByIdAndUpdate(req.params.id, {
-            $set: req.body
-        },{new: true})
-        res.status(200).json(uodatecart);
+      const cartSize = await Cart.aggregate([
+        {$match: {userID: req.user.id}},
+        {$addFields: {
+            size : {$size: "$products"}
+        }},
+        {$project: {size: 1, _id: 0}}
+      ]);
+      const [ removedArrayBrackets ] = cartSize
+      res.status(200).json(removedArrayBrackets)
+
+      
     } catch (error) {
-        res.status(400).json(error);
-    }   
+      console.log(error)
+      res.status(500).json("internal server error")
+    }
+    
+
+
 })
 
-//delete product from cart req:login
-router.delete("/:id/:productID", verifyUserWithToken, async (req, res) => {
-  
+//update products Quantity in cart
+router.put("/updatequantity/:productNumber/:newQuantity", verifyUserWithToken, async (req,res) => {
     try {
-      await Cart.updateOne({userID: req.user.id},{ $pull: { 'products': {productID: req.params.productID}}})
+      const cart = await Cart.update(
+        {userID: req.user.id, "products.productID": req.params.productNumber},
+        {$set: {"products.$.quantity": req.params.newQuantity}}
+      )
+      res.status(200).json(cart)
+    } catch (error) {
+      console.log(error)
+    }
+})
+
+
+router.delete("/:id", verifyUserWithToken, async (req, res) => {
+    console.log(req.params.id)
+    try {
+      await Cart.updateOne({userID: req.user.id},{ $pull: { 'products': {productID: req.params.id}}})
       res.status(200).json("cart deleted");
       
     } catch (err) {
@@ -112,13 +106,52 @@ router.delete("/:id/:productID", verifyUserWithToken, async (req, res) => {
   
   
   //get user cart
-  router.get("/info/:userId", async (req, res) => {
-
+  router.get("/info/:userId", verifyUserWithToken, async (req, res) => {
+    console.log(req.user.id)
     try {
-      const cart = await Cart.findOne({userId: req.params.userId});
-      res.status(200).json(cart)
+      const cart = await Cart.aggregate([
+        {$match: {userID: req.user.id}},
+        {
+          $lookup: {
+            from: "products",
+            localField: "products.productID",
+            foreignField: "productno",
+            as: "productInfo"
+          }
+        },
+
+        {
+          $project: {
+            userID: 1,
+            products: 1,
+            productInfo: {
+              title: 1,
+              productno: 1,
+              _id: 1,
+              desc: 1,
+              img: 1,
+              price: 1,
+            }
+          }
+        },
+        
+      ]);
+      if(!cart.length) {
+        return res.status(200).json({success: true, message: "no proucts foound"})
+      }
+      const [cartt] = cart; //removing array brackets
+      console.log(cart)
+
+      const margedProducts = []        
+      cartt.products.forEach(product => { //murgind user cart product with db product info like price n all whic are dynamic
+        const productInfo = cartt.productInfo.find(info => info.productno === product.productID);
+        margedProducts.push({ ...product, ...productInfo });
+      })
+  
+      res.status(200).json({userID: req.user.id, cartID: cartt._id, products: margedProducts})
       
     } catch (err) {
+      console.log(err)
       res.status(500).json(err);
     }
   });
