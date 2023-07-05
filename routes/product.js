@@ -1,5 +1,6 @@
 const router = require("express").Router();
-const product = require("../models/product");
+const mongoose  = require("mongoose");
+const { count } = require("../models/product");
 const Product = require("../models/product");
 const {verifyAdminWithToken} = require("./tokenVerify")
 
@@ -47,6 +48,10 @@ router.delete("/:id", verifyAdminWithToken, async (req, res) => {
   //get specific product info
   router.get("/info/:id", async (req, res) => {
 
+    if(!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(404).json("Invalid Product ID");
+    }
+
     try {
       const savedProducts = await Product.findById(req.params.id);
       if(!savedProducts) {
@@ -58,35 +63,53 @@ router.delete("/:id", verifyAdminWithToken, async (req, res) => {
       if(err.name === "CastError"){
         return res.status(404).json("Product not Found");
       }
-      res.status(500).json(err);
+      console.log("/info/:id Errorrrrrr")
+      console.log(err)
+      res.status(500).json({message: "internal server Error"});
     }
   });
   
   //get app product info or pass query to get newest added specific ammount of products 
   //req:admin login
   //GET ALL PRODUCTS
-router.get("/allinfo", async (req, res) => {
-    const qNew = req.query.new;
+router.get("/allinfo",async (req, res) => {
+    const { page = 1, limit = 2 } = req.query;
+    const startIndex = (page - 1) * limit;
     const qCategory = req.query.category;
+    const qsort = req.query.sort;
+    const qColor = req.query.color;
+    const qSize = req.query.size;
+
     try {
-      let products;
-  
-      if (qNew) {
-        products = await Product.find().sort({ createdAt: -1 }).limit(qNew);
-      } else if (qCategory) {
-        products = await Product.find({
-          categories: {
-            $in: [qCategory],
-          },
-        });
-      } else {
-        products = await Product.find();
+      let query = Product.find()
+
+      const filterArr = [];
+      if (qCategory) filterArr.push({ categories: { $in: [qCategory] } });
+      if (qColor) filterArr.push({ color: { $in: [qColor] } });
+      if (qSize) filterArr.push({ size: { $in: [qSize] } }); 
+      if (filterArr.length !== 0) {
+          query = query.find({ $and: filterArr });
       }
-  
+      
+
+
+      console.log({qCategory, qColor, qSize})
+
+      if(qsort === "new") {
+        query.sort({ createdAt: -1})
+      } else if (qsort === "price-asc") {
+        query.sort({ price : 1})
+      } else if (qsort === "price-desc") {
+        query.sort({ price : -1})
+      }
+      query.skip(startIndex).limit(limit)
+      const products = await query.exec()
       res.status(200).json(products);
-    } catch (err) {
+
+    } catch (error) {
       res.status(500).json(err);
     }
+
   });
 
 
@@ -95,7 +118,6 @@ router.get("/allinfo", async (req, res) => {
     if(!s) {
       return res.status(400).json("not found")
     }
-
     try {
       const products = await Product.find(
         {$or: [
