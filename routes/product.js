@@ -52,11 +52,9 @@ router.delete("/:id", verifyAdminWithToken, async (req, res) => {
       if(!savedProducts) {
         return res.status(404).json("Product not Foundd");
       }
-
-      setTimeout(() => {
         res.status(200).json(savedProducts)
-      }, 5000);
     } catch (err) {
+      console.log("/info/:id Errorrrrrr")
       if(err.name === "CastError"){
         return res.status(404).json("Product not Found");
       }
@@ -66,7 +64,6 @@ router.delete("/:id", verifyAdminWithToken, async (req, res) => {
   
   //get app product info or pass query to get newest added specific ammount of products 
   //req:admin login
-  //
   //GET ALL PRODUCTS
 router.get("/allinfo", async (req, res) => {
     const qNew = req.query.new;

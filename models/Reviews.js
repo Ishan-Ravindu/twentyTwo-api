@@ -23,7 +23,13 @@ const ReviewSchema = new Schema(
           type: mongoose.Types.ObjectId,
           ref: 'User',
           required: [true, 'Review must belong to a user']
-        }
+        },
+        upVotes: [
+            {userID: {type: mongoose.Types.ObjectId, ref: 'User',}}
+        ],
+        abuseReports: [
+            {userID: {type: mongoose.Types.ObjectId, ref: 'User',}}
+        ],
     },
     { 
       timestamps: true,
@@ -32,7 +38,6 @@ const ReviewSchema = new Schema(
 )
 
 ReviewSchema.post('save', function() {
-  console.log("post runed")
   ReviewSchema.static.calcAvgRating(this.product)
 })
 
