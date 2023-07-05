@@ -1,6 +1,6 @@
 const Order = require("../models/order");
 const { verifyAdminWithToken, verifyToken, verifyUserWithToken} = require("./tokenVerify");
-
+const ConfirmOrders = require('../models/ConfirmOrders.js')
 const router = require("express").Router();
 
 //CREATE
@@ -43,15 +43,16 @@ router.delete("/:id", verifyAdminWithToken, async (req, res) => {
 });
 
 //GET USER ORDERS
-router.get("/find/:userId", verifyUserWithToken, async (req, res) => {
+router.get("/find/:id", verifyUserWithToken, async (req, res) => {
+  console.log("me runed")
   try {
-    const orders = await Order.find({ userId: req.params.userId });
+    const orders = await ConfirmOrders.find({ userID: req.user.id }).sort({createdAt: -1});
     res.status(200).json(orders);
   } catch (err) {
     res.status(500).json(err);
   }
 });
-
+ 
 // //GET ALL
 
 router.get("/", verifyAdminWithToken, async (req, res) => {
