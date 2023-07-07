@@ -1,17 +1,17 @@
 const router = require("express").Router();
 const User = require("../models/user");
 const {verifyUserWithToken, verifyAdminWithToken} = require("./tokenVerify")
-const CryptoJS = require("crypto-js")
+const CryptoJS = require("crypto-js");
+const { default: mongoose } = require("mongoose");
 
 //UPDATE req: login
 router.put("/:id", verifyUserWithToken, async (req, res) => {
-  console.log("me hit")
   if (req.body.password) {
     req.body.password = await CryptoJS.AES.encrypt(req.body.password,process.env.CRYPTOJS_SECRET_KEY).toString();
   }
   try {
-    await User.findByIdAndUpdate(req.params.id, {$set: req.body}, {new:true});
-    res.status(200).json("user updated successfully");
+    const user = await User.findByIdAndUpdate(req.params.id, {$set: req.body}, {new:true});
+    res.status(200).json(user);
   } catch (err) {
     res.status(500).json({error: "failed to update user"});
     console.log(err)
@@ -44,12 +44,36 @@ router.get("/info/:id", verifyAdminWithToken, async (req, res) => {
 
 //get all user info, req:admin login
 router.get("/allinfo", verifyAdminWithToken, async (req, res) => {
-  query = req.query.limit
+  limit = req.query.limit;
+  search = req.query.s;
   try {
-    //.sort({ _id: -1}) used to fetch data from last bcz last is new data in mongodb 
-    const suser = query ? await User.find().sort({ _id: -1}).limit(query) : await User.find();
-    res.status(200).json(suser)
+    let query = User.find({}, {password: 0})
+    let filters = []
+
+    if(search) {
+      if(mongoose.isValidObjectId(search)) {
+        console.log("it is id")
+        filters.push({_id: mongoose.Types.ObjectId(search)})
+      } else {
+        console.log("it is not id")
+        filters.push({
+          
+          $or: [
+            {"firstName": {$regex: search, $options: "i"}},
+            {"lastName": {$regex: search, $options: "i"}},
+            {"email": {$regex: search, $options: "i"}},
+            {"number" : {$eq : Number(search)}}
+          ]
+        })    
+      }     
+    }
+    if(filters.length > 0) query = User.find({ $and: filters}, {password: 0})
+
+    resUsers = await query.exec();
+
+    res.status(200).json(resUsers)
   } catch (err) {
+    console.log(err)
     res.status(500).json(err);
   }
 });

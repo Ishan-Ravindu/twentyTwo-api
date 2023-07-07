@@ -1,6 +1,6 @@
 const router = require("express").Router();
 const Razorpay = require("razorpay")
-const dotenv = require("dotenv");
+const dotenv = require("dotenv").config();
 const crypto = require("crypto")
 const Product = require("../models/product");
 const Order = require("../models/order");
@@ -10,7 +10,7 @@ const ConfirmOrders = require("../models/ConfirmOrders");
 const { verifyToken } = require("./tokenVerify");
 const { default: mongoose } = require("mongoose");
 
-dotenv.config();
+
 
 const instance = new Razorpay({
     key_id: process.env.RAZORPAY_KEY_ID,
@@ -24,7 +24,12 @@ router.post("/checkout", verifyToken , async (req,res) => {
     console.log(req.body)
 
     if(req.body.type === "product"){ //if req is for single product
-      const dbproduct = await Product.findById(req.body.product.productID,{price: 1, img: 1, title: 1,_id: 0});
+      const dbproduct = await Product.findById(req.body.product.productID,{price: 1, img: 1, title: 1,_id: 0,quantity: 1});
+
+      if(!dbproduct) return res.status(404).json({success: false, message: "Sorry! Unable to find this product."})
+      if(dbproduct.quantity < 1) return res.status(404).json({success: false, message: "Sorry! This products is currently out of stock"})
+      
+
       price = dbproduct.price * req.body.product.quantity;
       req.finalProduct = {...dbproduct._doc, ...req.body.product} //appending dbProduct info with user product info so that i can store the value in db
 
@@ -86,7 +91,11 @@ router.post("/checkout", verifyToken , async (req,res) => {
         type: req.body.type,  // is it cart payment or a single product payment
         products: req.finalProduct || margedProducts,
         price: Number(price.toFixed(2)),
-        address: {address: req.body?.address},
+        userInfo: {
+          address: req.body.userInfo.address,
+          name: req.body.userInfo.name,
+          email: req.body.userInfo.email,
+        },
         order: response,
       })
       res.json({
@@ -122,13 +131,22 @@ router.post("/paymentVerify", async (req,res) => {
       await ConfirmOrders.create(data)
 
       if(dborder.type === "cart"){
-        const productIDS = await dborder.products.reduce((neww, current) => { // to get only id's of product which are available on order 
-          return [...neww, current._id]
-        },[])
-        console.log(productIDS)
-        await Product.updateMany({_id :{$in: productIDS}}, {$inc: {purchasedCount: 1}}) //adding 1 to the purchasedCount in quantity
-        await User.updateOne({_id: dborder.userID}, {$addToSet: { purchasedProducts : { $each : productIDS}}})
-        await Cart.deleteOne({userID: dborder.userID})   
+
+        //await Product.updateMany({_id :{$in: productIDS}}, {$inc: {purchasedCount: 1}}) //adding 1 to the purchasedCount in quantity & decrementing quantity
+        const updateProduct = dborder.products.map(product => ({
+          updateOne: {
+            filter: {_id : product.id},
+            update: {
+              $inc: { purchasedCount: product.quantity, quantity : -product.quantity }
+            }
+          }
+        }))
+
+        await Product.bulkWrite(updateProduct)
+        
+
+        await User.updateOne({_id: dborder.userID}, {$addToSet: { purchasedProducts : { $each : dborder.products.map(p => p._id)}}}) // map used to get only id's of product which are available on order 
+        //await Cart.deleteOne({userID: dborder.userID})   
       } else {
         const idObject = mongoose.Types.ObjectId(dborder.products[0].productID) //converting in ObjectID
         await User.updateOne({_id: dborder.userID}, {$addToSet: { purchasedProducts :  idObject}})

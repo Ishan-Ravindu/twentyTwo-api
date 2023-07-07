@@ -3,6 +3,7 @@ const mongoose  = require("mongoose");
 const { count } = require("../models/product");
 const Product = require("../models/product");
 const {verifyAdminWithToken} = require("./tokenVerify")
+const uploadImage = require('../utils/uploadImage.js')
 
 //add new product req: login
 
@@ -20,16 +21,17 @@ router.post("/", verifyAdminWithToken, async (req, res) => {
 
 //update products
 router.put("/:id", verifyAdminWithToken, async (req,res) => {
-
     try {
+        const image = await uploadImage(req.body.img, req.body._id);
+        req.body.img = image.url;
         const uodateProduct = await Product.findByIdAndUpdate(req.params.id, {
             $set: req.body
         },{new: true})
-        res.status(200).json(uodateProduct);
+        res.status(200).json(uodateProduct)
     } catch (error) {
+      console.log(error)
         res.status(400).json(error);
-    }
-    
+    }    
 })
 
 //delete product req:login
@@ -59,11 +61,9 @@ router.delete("/:id", verifyAdminWithToken, async (req, res) => {
       }
         res.status(200).json(savedProducts)
     } catch (err) {
-      console.log("/info/:id Errorrrrrr")
       if(err.name === "CastError"){
         return res.status(404).json("Product not Found");
       }
-      console.log("/info/:id Errorrrrrr")
       console.log(err)
       res.status(500).json({message: "internal server Error"});
     }
@@ -77,11 +77,19 @@ router.get("/allinfo",async (req, res) => {
     const qsort = req.query.sort;
     const qColor = req.query.color;
     const qSize = req.query.size;
+    const qs = req.query.s;
 
     try {
       let query = Product.find()
 
       const filterArr = [];
+      if(qs) filterArr.push({$or: [
+                            {"title": {$regex: qs, $options: "i"}},
+                            {"productno": {$regex: qs, $options: "i"}},
+                            {"desc": {$regex: qs, $options: "i"}},
+                            {"categories": {$in: [qs]}}
+                          ]})
+
       if (qCategory) filterArr.push({ categories: { $in: [qCategory] } });
       if (qColor) filterArr.push({ color: { $in: [qColor] } });
       if (qSize) filterArr.push({ size: { $in: [qSize] } }); 
