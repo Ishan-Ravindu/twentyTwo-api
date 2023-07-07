@@ -3,6 +3,8 @@ const { verifyAdminWithToken, verifyToken, verifyUserWithToken} = require("./tok
 const ConfirmOrders = require('../models/ConfirmOrders.js');
 const { default: mongoose, mongo } = require("mongoose");
 const product = require("../models/product");
+const {createOrderTemplate} = require("../helpers/orderConfrimation");
+const sendEmail = require("../helpers/sendEmail");
 const router = require("express").Router();
 
 //CREATE
@@ -17,7 +19,7 @@ router.post("/", verifyToken, async (req, res) => {
     res.status(500).json(err);
   }
 });
-
+ 
 //UPDATE
 router.put("/:id", verifyAdminWithToken, async (req, res) => {
   try {
@@ -45,35 +47,6 @@ router.put("/:id", verifyAdminWithToken, async (req, res) => {
 // });
 
 
-// GET MONTHLY INCOME
-
-router.get("/income", verifyAdminWithToken, async (req, res) => {
-  const date = new Date();
-  const lastMonth = new Date(date.setMonth(date.getMonth() - 1));
-  const previousMonth = new Date(new Date().setMonth(lastMonth.getMonth() - 1));
-
-  try {
-    const income = await Order.aggregate([
-      { $match: { createdAt: { $gte: previousMonth } } },
-      {
-        $project: {
-          month: { $month: "$createdAt" },
-          sales: "$amount",
-        },
-      },
-      {
-        $group: {
-          _id: "$month",
-          total: { $sum: "$sales" },
-        },
-      },
-    ]);
-    res.status(200).json(income);
-  } catch (err) {
-    res.status(500).json(err);
-  }
-});
-
 
 
 //////////////            CONFIRMED ORDERS         //////////////////////////////////
@@ -91,12 +64,16 @@ router.get("/find/:id", verifyUserWithToken, async (req, res) => {
 // //GET ALL
 
 router.get("/", verifyAdminWithToken, async (req, res) => {
-  let query = ConfirmOrders.find()
+  const {page = 1, limit = 10} = req.query;
+  const startIndex = (page - 1) * limit;
+  const FeildsIWant = {createdAt: 1, userInfo: 1, price: 1, orderStatus: 1}
+  let query = ConfirmOrders.find({},FeildsIWant)
   const filters = []
 
   const qsort = req.query.sort;
   const qstatus= req.query.status;
   const qsearch = req.query.search;
+  
 
   if(qsearch && !isNaN(Number(qsearch))) filters.push({"userInfo.address.mobile" : {$eq: Number(qsearch)}})
   if(qstatus) filters.push({orderStatus: qstatus})
@@ -106,10 +83,11 @@ router.get("/", verifyAdminWithToken, async (req, res) => {
   if (qsort === "price-asc") query.sort({price: 1})
   else if (qsort === "price-desc") query.sort({price: -1})
   else if (qsort === "oldest") query.sort({createdAt: 1})
-  else if (qsort === "newest") query.sort({createdAt: -1})
+  else if (qsort === "newest" ) query.sort({createdAt: -1})
 
   try {
-    const orders = await query.exec()
+    const orders = await query.skip(startIndex).limit(limit).exec()
+    if(orders.length < 1) return res.status(404).json({message: "No Products Found"});
     res.status(200).json(orders);
   } catch (err) {
     console.log(err)
@@ -125,11 +103,19 @@ router.put("/status/:id", verifyAdminWithToken, async (req, res) => {
   if(!status) return res.status(402).json({message: "status is requires"})
 
   try {
-    await ConfirmOrders.findByIdAndUpdate(id, {
-      orderStatus: status
-    });
+    const order = await ConfirmOrders.findByIdAndUpdate(id, {orderStatus: status}, {new: true});
+    const emailHTML = createOrderTemplate(order)
+
+    sendEmail({
+      to: order.userInfo.email,
+      subject: "Order Confirmation",
+      emailhtml: emailHTML,
+      emailtext: emailHTML
+    })
+
     res.status(200).json({message: `order status is successfully updated to ${status}`});
   } catch (err) {
+    console.log(err)
     res.status(500).json({message: "internal server error"});
   }
 });
