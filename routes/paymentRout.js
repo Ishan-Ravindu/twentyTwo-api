@@ -21,7 +21,6 @@ router.post("/checkout", verifyToken , async (req,res) => {
     let price = undefined
     let cart = undefined
     const margedProducts = []   
-    console.log(req.body)
 
     if(req.body.type === "product"){ //if req is for single product
       const dbproduct = await Product.findById(req.body.product.productID,{price: 1, img: 1, title: 1,_id: 0,quantity: 1});
@@ -40,7 +39,7 @@ router.post("/checkout", verifyToken , async (req,res) => {
           $lookup: {
             from: "products",
             localField: "products.productID",
-            foreignField: "productno",
+            foreignField: "_id",
             as: "productInfo"
           }
         },
@@ -68,7 +67,7 @@ router.post("/checkout", verifyToken , async (req,res) => {
   
       
       cartt.products.forEach(product => { //murgind user cart product with db product info like price n all whic are dynamic
-        const productInfo = cartt.productInfo.find(info => info.productno === product.productID);
+        const productInfo = cartt.productInfo.find(info => `${info._id}` === `${product.productID}`); //converted to string because when i was checking === it was cheecking the refrence on the memory not value bcz its an Objectid is an refrence ty[e]
         margedProducts.push({ ...product, ...productInfo });
       })
       
@@ -112,17 +111,13 @@ router.post("/checkout", verifyToken , async (req,res) => {
 
 router.post("/paymentVerify", async (req,res) => {
   const {razorpay_order_id,razorpay_payment_id,razorpay_signature  } = req.body;
-  console.log(req.body)
   const body = razorpay_order_id + "|" + razorpay_payment_id;
 
   const crypto = require("crypto");
   const expectedSignature = crypto.createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
                                   .update(body.toString())
                                   .digest('hex');
-                                  console.log("sig received " ,razorpay_signature);
-                                  console.log("sig generated " ,expectedSignature);
   if(expectedSignature === razorpay_signature) {
-    //return res.status(200).json({success: true});  
     try {
       const dborder = await Order.findOneAndDelete({"order.id": razorpay_order_id})
       if(!dborder) return res.status(400).json({error: "sesson timeout"})
@@ -132,7 +127,6 @@ router.post("/paymentVerify", async (req,res) => {
 
       if(dborder.type === "cart"){
 
-        //await Product.updateMany({_id :{$in: productIDS}}, {$inc: {purchasedCount: 1}}) //adding 1 to the purchasedCount in quantity & decrementing quantity
         const updateProduct = dborder.products.map(product => ({
           updateOne: {
             filter: {_id : product.id},
@@ -141,15 +135,16 @@ router.post("/paymentVerify", async (req,res) => {
             }
           }
         }))
-
         await Product.bulkWrite(updateProduct)
         
 
         await User.updateOne({_id: dborder.userID}, {$addToSet: { purchasedProducts : { $each : dborder.products.map(p => p._id)}}}) // map used to get only id's of product which are available on order 
-        //await Cart.deleteOne({userID: dborder.userID})   
+        await Cart.deleteOne({userID: dborder.userID})   
       } else {
         const idObject = mongoose.Types.ObjectId(dborder.products[0].productID) //converting in ObjectID
         await User.updateOne({_id: dborder.userID}, {$addToSet: { purchasedProducts :  idObject}})
+
+        await Product.findByIdAndUpdate(dborder.products[0].productID, {$inc: {purchasedCount: dborder.products[0].quantity, quantity: -dborder.products[0].quantity}})
       }
 
     } catch (error) {
